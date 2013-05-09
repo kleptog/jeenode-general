@@ -34,6 +34,8 @@ Scheduler scheduler (schedbuf, TASK_END);
 #include "JnGRF12.h"
 #include "JnPlugs.h"
 
+#define JG_EEPROM_ADDR ((uint8_t*) 0x80)
+
 // Lame floating point format, only powers of ten = mant*10^exp
 // 4 bits mantissa (0..15), 4 bits exponent (-8..7)
 #define SCALE(mant,exp) (((exp&0xF) << 4) | (mant&0xF))
@@ -213,6 +215,7 @@ void processCommand()
                      numPlugs++;
                      Serial.println("Device added.");
                  }
+                 saveConfig();
             }
             break;
 
@@ -228,6 +231,7 @@ void processCommand()
                         break;
                     }
                 }
+                saveConfig();
             }
             break;
 
@@ -242,6 +246,7 @@ void processCommand()
                         Serial.println("Device removed.");
                     }
                 }
+                saveConfig();
             }
             break;
 
@@ -370,6 +375,96 @@ static void showConfig()
         Serial.print("\r\n");
     }
     Serial.println(rf12config.msg);
+    saveConfig();
+}
+
+static int saveConfig()
+{
+    byte buffer[128];
+    byte *ptr = buffer;
+
+    *ptr++ = 'J';
+    *ptr++ = 'G';
+    ptr++;  // space for total length
+
+    for(int i=0; i<numPlugs; i++) {
+        Device *dev = getDevice(plugs[i].device_id);
+        if(!dev) {
+            continue;
+        }
+        byte *start = ptr++;   // space for length for this plug
+        *ptr++ = plugs[i].port;
+        *ptr++ = plugs[i].device_id;
+        *ptr++ = plugs[i].period;
+        for(int j=0; j<dev->num_measurements; j++)
+            *ptr++ = plugs[i].scale[j];
+
+        *start = ptr-start;
+    }
+    buffer[2] = ptr-buffer+2;  // Add two for CRC
+
+    word crc = ~0;
+    for (byte i = 0; i < ptr-buffer; ++i)
+        crc = _crc16_update(crc, buffer[i]);
+
+    *ptr++ = crc & 0xFF;
+    *ptr++ = crc >> 8;
+
+    // save to EEPROM
+    for (byte i = 0; i < ptr-buffer; ++i) {
+        byte b = buffer[i];
+        eeprom_write_byte(JG_EEPROM_ADDR + i, b);
+    }
+
+    if (!loadConfig())
+        Serial.println("config save failed");
+}
+
+static int loadConfig()
+{
+    if(eeprom_read_byte(JG_EEPROM_ADDR) != 'J' || eeprom_read_byte(JG_EEPROM_ADDR + 1) != 'G')
+        return 0;
+    int len = eeprom_read_byte(JG_EEPROM_ADDR + 2);
+    if(len>=128)
+        return 0;
+    byte buffer[128];
+    /// check CRC
+    uint16_t crc = ~0;
+    for (uint8_t i = 0; i < len; ++i) {
+        buffer[i] = eeprom_read_byte(JG_EEPROM_ADDR + i);
+        crc = _crc16_update(crc, buffer[i]);
+    }
+    if (crc != 0)
+        return 0;
+
+    byte *ptr = buffer;
+
+    int nodes = 0;
+    ptr = buffer+3;
+    while(ptr < buffer+len-2) {
+        int nodelen = *ptr;
+        if(nodelen < 4 || nodelen > 8) {
+            Serial.println("nodelen fail");
+            return 0;
+        }
+
+        memset(&plugs[nodes], 0, sizeof(plugs[nodes]));
+        plugs[nodes].port = ptr[1];
+        plugs[nodes].device_id = ptr[2];
+        plugs[nodes].period = ptr[3];
+
+        Device *dev = getDevice(plugs[nodes].device_id);
+        if(!dev) {
+            // Ignore unknown devices
+            continue;
+        }
+        for(int j=0; j<dev->num_measurements; j++)
+            plugs[nodes].scale[j] = ptr[4+j];
+        ptr += nodelen;
+        nodes++;
+    }
+    numPlugs = nodes;
+    return 1;
 }
 
 static int doMeasure(int count)
@@ -418,6 +513,7 @@ void setup () {
     Serial.begin(57600);
     Serial.print("\r\n[JeeNode General]\r\n");
     loadRF12Config();
+    loadConfig();
     showHelp();
     showConfig();
     showDevices();
