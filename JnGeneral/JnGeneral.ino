@@ -378,7 +378,6 @@ static void showConfig()
         Serial.print("\r\n");
     }
     Serial.println(rf12config.msg);
-    saveConfig();
 }
 
 static int saveConfig()
@@ -418,9 +417,6 @@ static int saveConfig()
         byte b = buffer[i];
         eeprom_write_byte(JG_EEPROM_ADDR + i, b);
     }
-
-    if (!loadConfig())
-        Serial.println("config save failed");
 }
 
 static int loadConfig()
