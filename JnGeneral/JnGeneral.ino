@@ -430,18 +430,27 @@ void setup () {
 //    scheduler.timer(MEASURE, 0);    // start the measurement loop going
 }
 
+static int readSerial = 0;
+
 void loop () {
-    while (Serial.available())
-    {
-        handleInput(Serial.read());
-        serialFlush();
+    // pollWaiting goes to low-power mode but also disables the serial port.
+    // So we listen to the serial port for the first minute after boot.  If
+    // we don't receive something in that time assume noone is there and
+    // stop monitoring.
+    int event;
+    if( readSerial || millis() < 60000 ) {
+        while (Serial.available())
+        {
+            readSerial = 1;
+            handleInput(Serial.read());
+            serialFlush();
+        }
+
+        event = scheduler.poll();
+    } else {
+        event = scheduler.pollWaiting();
     }
-//    delay(1000);
-//    Serial.print(".");
-//    serialFlush();
-    // pollWaiting goes to lowpower mode
-    // It also wakes up on interrupts (like serial)
-//    switch (scheduler.pollWaiting()) {
+    switch (event) {
 #if 0
         case MEASURE:
             // reschedule these measurements periodically
@@ -460,5 +469,5 @@ void loop () {
             doReport();
             break;
 #endif
-//    }
+    }
 }
