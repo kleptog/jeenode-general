@@ -423,7 +423,8 @@ void setup () {
     showDevices();
     prompt();
 
-//    rf12_sleep(RF12_SLEEP); // power down
+    rf12_config(0);         // Setup RF
+    rf12_sleep(RF12_SLEEP); // and power down
 
 //    reportCount = REPORT_EVERY;     // report right away for easy debugging
 //    scheduler.timer(MEASURE, 0);    // start the measurement loop going
