@@ -214,6 +214,7 @@ void processCommand()
                      }
                      numPlugs++;
                      Serial.println("Device added.");
+                     init_measure(plugs[numPlugs-1]);
                  }
                  saveConfig();
             }
@@ -225,6 +226,7 @@ void processCommand()
                 int device_id = values[1];
                 for(int i=0; i<numPlugs; i++) {
                     if( plugs[i].port == port & plugs[i].device_id == device_id) {
+                        end_measure(plugs[i]);
                         memmove(&plugs[i], &plugs[i+1], sizeof(Plug)*(numPlugs-1-i));
                         numPlugs--;
                         Serial.println("Device removed.");
@@ -240,6 +242,7 @@ void processCommand()
                 int port = values[0];
                 for(int i=0; i<numPlugs; i++) {
                     if( plugs[i].port == port ) {
+                        end_measure(plugs[i]);
                         memmove(&plugs[i], &plugs[i+1], sizeof(Plug)*(numPlugs-1-i));
                         numPlugs--;
                         i--;
@@ -464,16 +467,13 @@ static int loadConfig()
         nodes++;
     }
     numPlugs = nodes;
+
     return 1;
 }
 
 static int doMeasure(int count)
 {
     Serial.print("Doing measurements:\r\n");
-    for(int i=0; i<numPlugs; i++) {
-        init_measure(plugs[i]);
-    }
-
     for(int n=0; n<count; n++) {
         for(int i=0; i<numPlugs; i++) {
 
@@ -498,9 +498,6 @@ static int doMeasure(int count)
 
         Sleepy::loseSomeTime(1000);
     }
-    for(int i=0; i<numPlugs; i++) {
-        end_measure(plugs[i]);
-    }
 }
 
 static void prompt()
@@ -514,6 +511,10 @@ void setup () {
     Serial.print("\r\n[JeeNode General]\r\n");
     loadRF12Config();
     loadConfig();
+
+    for(int i=0; i<numPlugs; i++) {
+        init_measure(plugs[i]);
+    }
     showHelp();
     showConfig();
     showDevices();

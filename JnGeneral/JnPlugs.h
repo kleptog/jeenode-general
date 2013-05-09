@@ -209,6 +209,9 @@ static int init_measure(Plug &plug)
         return 0;
     }
 
+    Serial.print("Initialising: ");
+    Serial.println(dev->name);
+    serialFlush();
     plug.data = dev->info.create(plug.port);
     if(!plug.data) {
         debug("measure aborted");
@@ -244,6 +247,9 @@ static int end_measure(Plug &plug)
         return 1;
 
     Device *dev = getDevice(plug.device_id);
+    Serial.print("Finalising: ");
+    Serial.println(dev->name);
+    serialFlush();
     dev->info.destroy(plug.data);
 
     plug.data = NULL;
