@@ -47,9 +47,9 @@ static Unit units[] = {
     { UNIT_TEMP,     "Temperature", "C" },
     { UNIT_VOLT,     "Voltage", "V" },
     { UNIT_OHM,      "Resistance", "ohm" },
-    { UNIT_SCALAR,   "(no unit)", "" },
-    { UNIT_TESLA,    "Magnetic field (Tesla)", "T" }, // 10^-4 T = 1 gauss
-    { UNIT_PASCAL,   "Pressure (Pascal)", "Pa" },
+    { UNIT_SCALAR,   "Scalar", "" },
+    { UNIT_TESLA,    "Magnetic field", "T" }, // 10^-4 T = 1 gauss
+    { UNIT_PASCAL,   "Pressure", "Pa" },
 };
 
 static int numUnits = sizeof(units) / sizeof(units[0]);
@@ -199,24 +199,24 @@ void processCommand()
                         Serial.println("Port already used");
                         break;
                     }
-                 }
-                 if(i==numPlugs) {
-                     if(numPlugs == MAX_PLUGS) {
-                         Serial.println("Too many plugs defined");
-                         break;
-                     }
-                     memset(&plugs[numPlugs], 0, sizeof(Plug));
-                     plugs[numPlugs].port = port;
-                     plugs[numPlugs].device_id = dev->device_id;
-                     plugs[numPlugs].period = SCALE(6,2);  // 600 * tenths of seconds = 1 minute
-                     for(int k=0; k<dev->num_measurements; k++) {
-                         plugs[numPlugs].scale[k] = dev->measurements[k].scale;
-                     }
-                     numPlugs++;
-                     Serial.println("Device added.");
-                     init_measure(plugs[numPlugs-1]);
-                 }
-                 saveConfig();
+                }
+                if(i==numPlugs) {
+                    if(numPlugs == MAX_PLUGS) {
+                        Serial.println("Too many plugs defined");
+                        break;
+                    }
+                    memset(&plugs[numPlugs], 0, sizeof(Plug));
+                    plugs[numPlugs].port = port;
+                    plugs[numPlugs].device_id = dev->device_id;
+                    plugs[numPlugs].period = SCALE(6,2);  // 600 * tenths of seconds = 1 minute
+                    for(int k=0; k<dev->num_measurements; k++) {
+                        plugs[numPlugs].scale[k] = dev->measurements[k].scale;
+                    }
+                    numPlugs++;
+                    Serial.println("Device added.");
+                    init_measure(plugs[numPlugs-1]);
+                }
+                saveConfig();
                 scheduler.timer(TASK_ANNOUNCE, 0);
             }
             break;
@@ -339,7 +339,6 @@ static void showDevices()
         Serial.print(devices[i].name);
         Serial.print(", measures: ");
         for(int j=0; j < devices[i].num_measurements; j++) {
-            printScale(devices[i].measurements[j].scale);
             Unit *unit = getUnit(devices[i].measurements[j].unit);
             if(!unit)
                 Serial.print("(Unknown)");
@@ -371,9 +370,11 @@ static void showConfig()
                 Serial.print("(Unknown)");
             else {
                 Serial.print(unit->descr);
-                Serial.print(" ");
+                Serial.print(" (");
                 printScale(plugs[i].scale[j]);
+                Serial.print(" ");
                 Serial.print(unit->unitname);
+                Serial.print(") ");
             }
             Serial.print(", ");
         }
@@ -550,7 +551,7 @@ static void prompt()
 
 void setup () {
     Serial.begin(57600);
-    Serial.print("\r\n[JeeNode General]\r\n");
+    Serial.println("\r\n[JeeNode General]");
     loadRF12Config();
     loadConfig();
 
