@@ -31,6 +31,7 @@ typedef struct {
     uint8_t port;
     uint8_t device_id;
     uint8_t period;
+    uint8_t id;       // ID of first measurement for this plug, used to match announcements with measurements
     uint8_t scale[4];
     void *data;
 } Plug;

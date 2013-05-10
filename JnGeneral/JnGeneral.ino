@@ -27,7 +27,7 @@
 
 // The scheduler makes it easy to perform various tasks at various times:
 
-#define TASK_END 2
+enum { TASK_ANNOUNCE=0, TASK_MEASURE, TASK_REPORT, TASK_END };
 static word schedbuf[TASK_END];
 Scheduler scheduler (schedbuf, TASK_END);
 
@@ -217,6 +217,7 @@ void processCommand()
                      init_measure(plugs[numPlugs-1]);
                  }
                  saveConfig();
+                scheduler.timer(TASK_ANNOUNCE, 0);
             }
             break;
 
@@ -234,6 +235,7 @@ void processCommand()
                     }
                 }
                 saveConfig();
+                scheduler.timer(TASK_ANNOUNCE, 0);
             }
             break;
 
@@ -250,6 +252,7 @@ void processCommand()
                     }
                 }
                 saveConfig();
+                scheduler.timer(TASK_ANNOUNCE, 0);
             }
             break;
 
@@ -467,6 +470,49 @@ static int loadConfig()
     return 1;
 }
 
+static void sendAnnouncement()
+{
+    // Sends the announcement message and updates the id fields so
+    // measurements can be understood.  In total about 15 measurements
+    // allowed.
+    byte buffer[66];
+    byte *ptr = buffer;
+
+    *ptr++ = 'C';  // Config message
+    int id = 0;
+
+    if(numPlugs == 0)
+        return;
+
+    for(int i=0; i<numPlugs; i++) {
+        Device *dev = getDevice(plugs[i].device_id);
+        if(!dev) {
+            continue;
+        }
+        plugs[i].id = id;
+        // For each measurement, the unit, the scale, the period and the bitwidth
+        for(int j=0; j<dev->num_measurements; j++) {
+            *ptr++ = dev->measurements[i].unit;
+            *ptr++ = plugs[i].scale[j];
+            *ptr++ = plugs[i].period;
+            *ptr++ = -16;
+            id++;
+        }
+    }
+
+    rf12_sleep(RF12_WAKEUP);
+    rf12_sendNow(0, buffer, ptr-buffer);
+    rf12_sendWait(RADIO_SYNC_MODE);
+    rf12_sleep(RF12_SLEEP);
+
+//    for (byte i = 0; i < ptr-buffer; ++i) {
+//        byte b = buffer[i];
+//        printInt(b);
+//        Serial.print(",");
+//    }
+//    Serial.println("");
+}
+
 static int doMeasure(int count)
 {
     Serial.print("Doing measurements:\r\n");
@@ -519,8 +565,7 @@ void setup () {
     rf12_config(0);         // Setup RF
     rf12_sleep(RF12_SLEEP); // and power down
 
-//    reportCount = REPORT_EVERY;     // report right away for easy debugging
-//    scheduler.timer(MEASURE, 0);    // start the measurement loop going
+    scheduler.timer(TASK_ANNOUNCE, 0);    // start the announcements
 }
 
 static int readSerial = 0;
@@ -544,6 +589,13 @@ void loop () {
         event = scheduler.pollWaiting();
     }
     switch (event) {
+        case TASK_ANNOUNCE:
+            // Repeat every minute for the first five minutes, then once per hour
+            scheduler.timer(TASK_ANNOUNCE, millis() < 300000 ? 600 : 36000);
+
+            sendAnnouncement();
+            break;
+
 #if 0
         case MEASURE:
             // reschedule these measurements periodically
