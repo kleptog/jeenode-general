@@ -64,11 +64,11 @@ static Unit *getUnit(int unit_id)
 }
 
 static Device devices[] = {
-    { DEVICE_LDR, 1, 0, { { UNIT_SCALAR, SCALE(1,0) }  }, "LDR sensor", PLUG_LDR_INFO },
-    { DEVICE_SHT11, 2, 0, { { UNIT_HUMIDITY, SCALE(1, 0) }, { UNIT_TEMP, SCALE(1, -1) } }, "SHT11 sensor", PLUG_SHT11_INFO },
-    { DEVICE_VOLT, 1, 0, { { UNIT_VOLT, SCALE(1,-2) } }, "Voltage divider", PLUG_ADC_INFO },
-    { DEVICE_COMPASS, 3, 1, { { UNIT_TESLA, SCALE(1,-7) }, { UNIT_TESLA, SCALE(1,-7) }, { UNIT_TESLA, SCALE(1,-7) } }, "Compass board", PLUG_COMPASS_INFO },
-    { DEVICE_PRESSURE, 2, 1, { { UNIT_TEMP, SCALE(1, -1) }, { UNIT_PASCAL, SCALE(1,2) } }, "Pressure board", PLUG_PRESSURE_INFO },
+    { DEVICE_LDR, 1, 0, { { UNIT_SCALAR, SCALE(1,0), 7 }  }, "LDR sensor", PLUG_LDR_INFO },
+    { DEVICE_SHT11, 2, 0, { { UNIT_HUMIDITY, SCALE(1, 0), 7 }, { UNIT_TEMP, SCALE(1, -1), -12 } }, "SHT11 sensor", PLUG_SHT11_INFO },
+    { DEVICE_VOLT, 1, 0, { { UNIT_VOLT, SCALE(1,-2), 9 } }, "Voltage divider", PLUG_ADC_INFO },
+    { DEVICE_COMPASS, 3, 1, { { UNIT_TESLA, SCALE(1,-7), -12 }, { UNIT_TESLA, SCALE(1,-7), -12 }, { UNIT_TESLA, SCALE(1,-7), -12 } }, "Compass board", PLUG_COMPASS_INFO },
+    { DEVICE_PRESSURE, 2, 1, { { UNIT_TEMP, SCALE(1, -1), -12 }, { UNIT_PASCAL, SCALE(1,2), 12 } }, "Pressure board", PLUG_PRESSURE_INFO },
 };
 
 static int numDevices = sizeof(devices) / sizeof(devices[0]);
@@ -89,6 +89,11 @@ static int numPlugs;
 #define CMDBUFFER_SIZE 32
 char cmdbuffer[CMDBUFFER_SIZE];
 int cmdbufferpos;
+
+// Buffer for outgoing measurement reports
+#define DATABUFFER_SIZE 60
+byte databuffer[DATABUFFER_SIZE];
+int8_t databufferpos;
 
 // has to be defined because we're using the watchdog for low-power waiting
 ISR(WDT_vect) { Sleepy::watchdogEvent(); }
@@ -210,7 +215,8 @@ void processCommand()
                     plugs[numPlugs].device_id = dev->device_id;
                     plugs[numPlugs].period = SCALE(6,2);  // 600 * tenths of seconds = 1 minute
                     for(int k=0; k<dev->num_measurements; k++) {
-                        plugs[numPlugs].scale[k] = dev->measurements[k].scale;
+                        plugs[numPlugs].measurements[k].scale = dev->measurements[k].scale;
+                        plugs[numPlugs].measurements[k].width = dev->measurements[k].width;
                     }
                     numPlugs++;
                     Serial.println("Device added.");
@@ -371,7 +377,7 @@ static void showConfig()
             else {
                 Serial.print(unit->descr);
                 Serial.print(" (");
-                printScale(plugs[i].scale[j]);
+                printScale(plugs[i].measurements[j].scale);
                 Serial.print(" ");
                 Serial.print(unit->unitname);
                 Serial.print(") ");
@@ -403,7 +409,7 @@ static int saveConfig()
         *ptr++ = plugs[i].device_id;
         *ptr++ = plugs[i].period;
         for(int j=0; j<dev->num_measurements; j++)
-            *ptr++ = plugs[i].scale[j];
+            *ptr++ = plugs[i].measurements[j].scale;
 
         *start = ptr-start;
     }
@@ -461,8 +467,10 @@ static int loadConfig()
             // Ignore unknown devices
             continue;
         }
-        for(int j=0; j<dev->num_measurements; j++)
-            plugs[nodes].scale[j] = ptr[4+j];
+        for(int j=0; j<dev->num_measurements; j++) {
+            plugs[nodes].measurements[j].scale = ptr[4+j];
+            plugs[nodes].measurements[j].width = dev->measurements[j].width;
+        }
         ptr += nodelen;
         nodes++;
     }
@@ -494,9 +502,9 @@ static void sendAnnouncement()
         // For each measurement, the unit, the scale, the period and the bitwidth
         for(int j=0; j<dev->num_measurements; j++) {
             *ptr++ = dev->measurements[i].unit;
-            *ptr++ = plugs[i].scale[j];
+            *ptr++ = plugs[i].measurements[j].scale;
             *ptr++ = plugs[i].period;
-            *ptr++ = -16;
+            *ptr++ = plugs[i].measurements[j].width;
             id++;
         }
     }
@@ -530,13 +538,64 @@ static int doMeasure(int count)
                 Serial.println("(measurement failed)");
                 continue;
             }
+            // Now add this information to the databuffer
+            byte pos = databufferpos;
+            databuffer[pos++] = plugs[i].id | ((dev->num_measurements-1) << 5);  // start id + number of values
+            int32_t bitbuffer = 0;
+            byte bitbuffercount = 0;
             for(int j=0; j<dev->num_measurements; j++) {
                 printInt(measurements[j]);
                 Serial.print(", ");
+
+                int8_t width = plugs[i].measurements[j].width;
+                // Clamp based on width
+                int32_t low, high, mask;
+                byte width_val;
+                if(width > 0) {
+                    low = 0;
+                    high = (1 << width)-1;
+                    mask = high;
+                    width_val = width;
+                } else {
+                    high = (1 << (-width-1))-1;
+                    low = ~high;
+                    mask = (1<<(-width))-1;
+                    width_val = -width;
+                }
+                int32_t m = measurements[j];
+                if(m < low) m = low;
+                if(m > high) m = high;
+
+                // Chop
+                m &= mask;
+
+                bitbuffer <<= width_val;
+                bitbuffer |= m;
+                bitbuffercount += width_val;
+
+//                Serial.print("(");
+//                printInt(bitbuffer);
+//                Serial.print(")");
+                while(bitbuffercount >= 8) {
+                    databuffer[pos++] = bitbuffer >> (bitbuffercount-8);
+                    bitbuffercount -= 8;
+                }
+            }
+            // Push remainder
+            if(bitbuffercount) {
+                bitbuffer <<= (8-bitbuffercount);
+                databuffer[pos++] = bitbuffer;
             }
 
+//            Serial.print("=> ");
+//            for(int j=databufferpos; j<pos; j++) {
+//                printInt(databuffer[j]);
+//                Serial.print(",");
+//            }
             Serial.print("\r\n");
             serialFlush();
+
+            databufferpos = pos;
         }
 
         Sleepy::loseSomeTime(1000);
