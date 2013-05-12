@@ -3,9 +3,11 @@
 // 2013-05-11 <kleptog@svana.org> Martijn van Oosterhout
 // http://opensource.org/licenses/mit-license.php
 
+typedef int16_t measurement_t;
+
 typedef struct {
-    void *(*create)(int port);
-    int (*measure)(void *data, int32_t *measurements);
+    void *(*create)(byte port);
+    byte (*measure)(void *data, measurement_t *measurements);
     void (*destroy)(void *data);
 } PlugInfo;
 

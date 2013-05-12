@@ -12,20 +12,20 @@ static void shtDelay () {
     Sleepy::loseSomeTime(32); // must wait at least 20 ms
 }
 
-static void *sht11_create(int port)
+static void *sht11_create(byte port)
 {
     SHT11 *sht11 = new SHT11(port);
     return sht11;
 }
 
-static int sht11_measure(void *data, int32_t *measurements)
+static byte sht11_measure(void *data, measurement_t *measurements)
 {
     SHT11 &sht11 = *(SHT11*)data;
     sht11.measure(SHT11::HUMI, shtDelay);    // TODO: check for CRC errors?
     sht11.measure(SHT11::TEMP, shtDelay);
     float h, t;
     sht11.calculate(h, t);
-    int humi = h + 0.5, temp = 10 * t + 0.5;
+    measurement_t humi = h + 0.5, temp = 10 * t + 0.5;
 
     measurements[0] = humi;
     measurements[1] = temp;
@@ -41,13 +41,13 @@ static void sht11_destroy(void *data)
 
 #define PLUG_SHT11_INFO { sht11_create, sht11_measure, sht11_destroy }
 
-static void *ldr_create(int port)
+static void *ldr_create(byte port)
 {
     Port *ldr = new Port(port);
     return (void*)ldr;
 }
 
-static int ldr_measure(void *data, int32_t *measurements)
+static byte ldr_measure(void *data, measurement_t *measurements)
 {
     Port &ldr = *(Port*)data;
     ldr.digiWrite2(1);  // enable AIO pull-up
@@ -66,18 +66,18 @@ static void ldr_destroy(void *data)
 
 #define PLUG_LDR_INFO { ldr_create, ldr_measure, ldr_destroy }
 
-static void *adc_create(int port)
+static void *adc_create(byte port)
 {
     Port *adc = new Port(port);
     return (void*)adc;
 }
 
-static int adc_measure(void *data, int32_t *measurements)
+static byte adc_measure(void *data, measurement_t *measurements)
 {
     Port &adc = *(Port*)data;
     adc.mode2(INPUT);  // enable input
     adc.anaRead();  // throw away first reading
-    int value = map(adc.anaRead(), 0, 1023, 0, 3300);  // Map to millivolts
+    measurement_t value = map(adc.anaRead(), 0, 1023, 0, 3300);  // Map to millivolts
 
     measurements[0] = value;
     return 0;
@@ -93,7 +93,7 @@ static void adc_destroy(void *data)
 
 #include <PortsBMP085.h>
 
-static void *pressure_create(int port)
+static void *pressure_create(byte port)
 {
     PortI2C *i2c = new PortI2C(port);
     BMP085 *pressure = new BMP085(*i2c, 3); // ultra high resolution
@@ -106,7 +106,7 @@ static void *pressure_create(int port)
     return (void*)pressure;
 }
 
-static int pressure_measure(void *data, int32_t *measurements)
+static byte pressure_measure(void *data, measurement_t *measurements)
 {
     BMP085 &pressure = *(BMP085*)data;
 
@@ -123,7 +123,7 @@ static int pressure_measure(void *data, int32_t *measurements)
     pressure.calculate(temp, pres);
 
     measurements[0] = temp;
-    measurements[1] = pres;
+    measurements[1] = pres / 100;  // convert to hPa to fit in 64k
     return 0;
 }
 
@@ -137,7 +137,7 @@ static void pressure_destroy(void *data)
 
 #define PLUG_PRESSURE_INFO { pressure_create, pressure_measure, pressure_destroy }
 
-static void *compass_create(int port)
+static void *compass_create(byte port)
 {
     PortI2C *i2c = new PortI2C(port);
     DeviceI2C *compass = new DeviceI2C(*i2c, 0x1E);
@@ -153,7 +153,7 @@ static void *compass_create(int port)
     return (void*)compass;
 }
 
-static int compass_measure(void *data, int32_t *measurements)
+static byte compass_measure(void *data, measurement_t *measurements)
 {
     DeviceI2C &compass = *(DeviceI2C*)data;
 
@@ -169,8 +169,8 @@ static int compass_measure(void *data, int32_t *measurements)
 
     compass.receive();
 
-    int outputData[6];
-    for (int i=0; i<6; i++){
+    byte outputData[6];
+    for (byte i=0; i<6; i++){
         outputData[i] = compass.read(i == 5);
     }
     compass.stop();
@@ -199,7 +199,7 @@ static void compass_destroy(void *data)
 
 #define PLUG_COMPASS_INFO { compass_create, compass_measure, compass_destroy }
 
-static int init_measure(Plug &plug)
+static byte init_measure(Plug &plug)
 {
     if(plug.data)
         return 1;
@@ -221,7 +221,7 @@ static int init_measure(Plug &plug)
     return 1;
 }
 
-static int measure(Plug &plug, int32_t measurements[4])
+static byte measure(Plug &plug, measurement_t measurements[4])
 {
     if(!plug.data) {
         debug("not initialised");
@@ -241,7 +241,7 @@ static int measure(Plug &plug, int32_t measurements[4])
     return 1;
 }
 
-static int end_measure(Plug &plug)
+static byte end_measure(Plug &plug)
 {
     if(!plug.data)
         return 1;

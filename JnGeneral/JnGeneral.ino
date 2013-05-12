@@ -54,9 +54,9 @@ static Unit units[] = {
 
 static int numUnits = sizeof(units) / sizeof(units[0]);
 
-static Unit *getUnit(int unit_id)
+static Unit *getUnit(byte unit_id)
 {
-    for(int i=0; i<numUnits; i++) {
+    for(byte i=0; i<numUnits; i++) {
         if (units[i].unit_id == unit_id)
             return &units[i];
     }
@@ -73,9 +73,9 @@ static Device devices[] = {
 
 static int numDevices = sizeof(devices) / sizeof(devices[0]);
 
-static Device *getDevice(int device_id)
+static Device *getDevice(byte device_id)
 {
-    for(int i=0; i<numDevices; i++) {
+    for(byte i=0; i<numDevices; i++) {
         if (devices[i].device_id == device_id)
             return &devices[i];
     }
@@ -83,12 +83,12 @@ static Device *getDevice(int device_id)
 }
 
 static Plug plugs[MAX_PLUGS];
-static int numPlugs;
+static int8_t numPlugs;
 
 // Other variables used in various places in the code:
 #define CMDBUFFER_SIZE 32
 char cmdbuffer[CMDBUFFER_SIZE];
-int cmdbufferpos;
+int8_t cmdbufferpos;
 
 // Buffer for outgoing measurement reports
 #define DATABUFFER_SIZE 60
@@ -114,7 +114,8 @@ int parseInt(int *value)
 {
     while( cmdbuffer[cmdbufferpos] == ' ' )
         cmdbufferpos++;
-    int sign = 1, val = 0, len = 0;
+    int8_t sign = 1, len = 0;
+    int val = 0;
     if( cmdbuffer[cmdbufferpos] == '-' ) {
         sign = -1;
         cmdbufferpos++;
@@ -187,7 +188,7 @@ void processCommand()
 
         case 'a': // add device
             if (parseInt(&values[0]) && parseInt(&values[1])) {
-                int port = values[0];
+                byte port = values[0];
                 if(port < 1 || port > 4) {
                     Serial.println("Bad port number (1..4)");
                     break;
@@ -198,7 +199,7 @@ void processCommand()
                     break;
                 }
 
-                int i=0;
+                byte i=0;
                 for(i=0; i<numPlugs; i++) {
                     if( plugs[i].port == port ) {
                         Serial.println("Port already used");
@@ -214,7 +215,7 @@ void processCommand()
                     plugs[numPlugs].port = port;
                     plugs[numPlugs].device_id = dev->device_id;
                     plugs[numPlugs].period = SCALE(6,2);  // 600 * tenths of seconds = 1 minute
-                    for(int k=0; k<dev->num_measurements; k++) {
+                    for(byte k=0; k<dev->num_measurements; k++) {
                         plugs[numPlugs].measurements[k].scale = dev->measurements[k].scale;
                         plugs[numPlugs].measurements[k].width = dev->measurements[k].width;
                     }
@@ -229,9 +230,9 @@ void processCommand()
 
         case 'd': // delete device
             if (parseInt(&values[0]) && parseInt(&values[1])) {
-                int port = values[0];
-                int device_id = values[1];
-                for(int i=0; i<numPlugs; i++) {
+                byte port = values[0];
+                byte device_id = values[1];
+                for(byte i=0; i<numPlugs; i++) {
                     if( plugs[i].port == port & plugs[i].device_id == device_id) {
                         end_measure(plugs[i]);
                         memmove(&plugs[i], &plugs[i+1], sizeof(Plug)*(numPlugs-1-i));
@@ -247,8 +248,8 @@ void processCommand()
 
         case 'c': // clear port
             if (parseInt(&values[0])) {
-                int port = values[0];
-                for(int i=0; i<numPlugs; i++) {
+                byte port = values[0];
+                for(byte i=0; i<numPlugs; i++) {
                     if( plugs[i].port == port ) {
                         end_measure(plugs[i]);
                         memmove(&plugs[i], &plugs[i+1], sizeof(Plug)*(numPlugs-1-i));
@@ -310,7 +311,7 @@ static void printInt(int32_t val) {
     Serial.print(buf);
 }
 
-static void printScale(int scale) {
+static void printScale(byte scale) {
     printInt(scale & 0xF);
     Serial.print("e");
     int exp = scale >> 4;
@@ -321,7 +322,7 @@ static void printScale(int scale) {
 
 static void showHelp()
 {
-    Serial.print("Commands:\r\n"
+    Serial.print(F("Commands:\r\n"
                  "  h                   Help\r\n"
                  "  a <port> <device>   Add device to port\r\n"
                  "  d <port> <device>   Remove device from port\r\n"
@@ -333,18 +334,18 @@ static void showHelp()
                  "  b <band>            set band: 4 = 433, 8 = 868, 9 = 915\r\n"
                  "  g <group>           RF12 group id (1..255)\r\n"
                  "  n <node>            RF12 node id (A..Z or 1..26)\r\n"
-                );
+                ));
 }
 
 static void showDevices()
 {
-    Serial.print("Defined devices:\r\n");
-    for(int i=0; i<numDevices; i++) {
+    Serial.print(F("Defined devices:\r\n"));
+    for(byte i=0; i<numDevices; i++) {
         printInt(i);
         Serial.print(" ");
         Serial.print(devices[i].name);
         Serial.print(", measures: ");
-        for(int j=0; j < devices[i].num_measurements; j++) {
+        for(byte j=0; j < devices[i].num_measurements; j++) {
             Unit *unit = getUnit(devices[i].measurements[j].unit);
             if(!unit)
                 Serial.print("(Unknown)");
@@ -358,8 +359,8 @@ static void showDevices()
 
 static void showConfig()
 {
-    Serial.print("Current configuration:\r\n");
-    for(int i=0; i<numPlugs; i++) {
+    Serial.print(F("Current configuration:\r\n"));
+    for(byte i=0; i<numPlugs; i++) {
         Serial.print("port ");
         printInt(plugs[i].port);
         Serial.print(" ");
@@ -370,7 +371,7 @@ static void showConfig()
         }
         Serial.print(dev->name);
         Serial.print(" measuring: ");
-        for(int j=0; j<dev->num_measurements; j++) {
+        for(byte j=0; j<dev->num_measurements; j++) {
             Unit *unit = getUnit(dev->measurements[j].unit);
             if(!unit)
                 Serial.print("(Unknown)");
@@ -399,7 +400,7 @@ static int saveConfig()
     *ptr++ = 'G';
     ptr++;  // space for total length
 
-    for(int i=0; i<numPlugs; i++) {
+    for(byte i=0; i<numPlugs; i++) {
         Device *dev = getDevice(plugs[i].device_id);
         if(!dev) {
             continue;
@@ -408,7 +409,7 @@ static int saveConfig()
         *ptr++ = plugs[i].port;
         *ptr++ = plugs[i].device_id;
         *ptr++ = plugs[i].period;
-        for(int j=0; j<dev->num_measurements; j++)
+        for(byte j=0; j<dev->num_measurements; j++)
             *ptr++ = plugs[i].measurements[j].scale;
 
         *start = ptr-start;
@@ -433,7 +434,7 @@ static int loadConfig()
 {
     if(eeprom_read_byte(JG_EEPROM_ADDR) != 'J' || eeprom_read_byte(JG_EEPROM_ADDR + 1) != 'G')
         return 0;
-    int len = eeprom_read_byte(JG_EEPROM_ADDR + 2);
+    byte len = eeprom_read_byte(JG_EEPROM_ADDR + 2);
     if(len>=128)
         return 0;
     byte buffer[128];
@@ -448,10 +449,10 @@ static int loadConfig()
 
     byte *ptr = buffer;
 
-    int nodes = 0;
+    byte nodes = 0;
     ptr = buffer+3;
     while(ptr < buffer+len-2) {
-        int nodelen = *ptr;
+        byte nodelen = *ptr;
         if(nodelen < 4 || nodelen > 8) {
             Serial.println("nodelen fail");
             return 0;
@@ -467,7 +468,7 @@ static int loadConfig()
             // Ignore unknown devices
             continue;
         }
-        for(int j=0; j<dev->num_measurements; j++) {
+        for(byte j=0; j<dev->num_measurements; j++) {
             plugs[nodes].measurements[j].scale = ptr[4+j];
             plugs[nodes].measurements[j].width = dev->measurements[j].width;
         }
@@ -488,19 +489,19 @@ static void sendAnnouncement()
     byte *ptr = buffer;
 
     *ptr++ = 'C';  // Config message
-    int id = 0;
+    byte id = 0;
 
     if(numPlugs == 0)
         return;
 
-    for(int i=0; i<numPlugs; i++) {
+    for(byte i=0; i<numPlugs; i++) {
         Device *dev = getDevice(plugs[i].device_id);
         if(!dev) {
             continue;
         }
         plugs[i].id = id;
         // For each measurement, the unit, the scale, the period and the bitwidth
-        for(int j=0; j<dev->num_measurements; j++) {
+        for(byte j=0; j<dev->num_measurements; j++) {
             *ptr++ = dev->measurements[i].unit;
             *ptr++ = plugs[i].measurements[j].scale;
             *ptr++ = plugs[i].period;
@@ -525,14 +526,14 @@ static void sendAnnouncement()
 static int doMeasure(int count)
 {
     Serial.print("Doing measurements:\r\n");
-    for(int n=0; n<count; n++) {
-        for(int i=0; i<numPlugs; i++) {
+    for(byte n=0; n<count; n++) {
+        for(byte i=0; i<numPlugs; i++) {
 
             printInt(plugs[i].port);
             Serial.print(": ");
 
             Device *dev = getDevice(plugs[i].device_id);
-            int32_t measurements[4];
+            measurement_t measurements[4];
             serialFlush();
             if(!measure(plugs[i], measurements)) {
                 Serial.println("(measurement failed)");
@@ -543,7 +544,7 @@ static int doMeasure(int count)
             databuffer[pos++] = plugs[i].id | ((dev->num_measurements-1) << 5);  // start id + number of values
             int32_t bitbuffer = 0;
             byte bitbuffercount = 0;
-            for(int j=0; j<dev->num_measurements; j++) {
+            for(byte j=0; j<dev->num_measurements; j++) {
                 printInt(measurements[j]);
                 Serial.print(", ");
 
@@ -588,7 +589,7 @@ static int doMeasure(int count)
             }
 
 //            Serial.print("=> ");
-//            for(int j=databufferpos; j<pos; j++) {
+//            for(byte j=databufferpos; j<pos; j++) {
 //                printInt(databuffer[j]);
 //                Serial.print(",");
 //            }
@@ -614,7 +615,7 @@ void setup () {
     loadRF12Config();
     loadConfig();
 
-    for(int i=0; i<numPlugs; i++) {
+    for(byte i=0; i<numPlugs; i++) {
         init_measure(plugs[i]);
     }
     showHelp();
@@ -628,14 +629,14 @@ void setup () {
     scheduler.timer(TASK_ANNOUNCE, 0);    // start the announcements
 }
 
-static int readSerial = 0;
+static byte readSerial = 0;
 
 void loop () {
     // pollWaiting goes to low-power mode but also disables the serial port.
     // So we listen to the serial port for the first minute after boot.  If
     // we don't receive something in that time assume noone is there and
     // stop monitoring.
-    int event;
+    byte event;
     if( readSerial || millis() < 60000 ) {
         while (Serial.available())
         {
