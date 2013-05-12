@@ -523,83 +523,106 @@ static void sendAnnouncement()
 //    Serial.println("");
 }
 
+// Takes the given measurements for a plug and buffer them for transmission
+static void bufferMeasurements(Plug &plug, const measurement_t (&measurements)[4])
+{
+    // Now add this information to the databuffer
+    byte pos = databufferpos;
+    Device *dev = getDevice(plug.device_id);
+    databuffer[pos++] = plug.id | ((dev->num_measurements-1) << 5);  // start id + number of values
+    int32_t bitbuffer = 0;
+    byte bitbuffercount = 0;
+    for(byte j=0; j<dev->num_measurements; j++) {
+        int8_t width = plug.measurements[j].width;
+        // Clamp based on width
+        int32_t low, high, mask;
+        byte width_val;
+        if(width > 0) {
+            low = 0;
+            high = (1 << width)-1;
+            mask = high;
+            width_val = width;
+        } else {
+            high = (1 << (-width-1))-1;
+            low = ~high;
+            mask = (1<<(-width))-1;
+            width_val = -width;
+        }
+        int32_t m = measurements[j];
+        if(m < low) m = low;
+        if(m > high) m = high;
+
+        // Chop
+        m &= mask;
+
+        bitbuffer <<= width_val;
+        bitbuffer |= m;
+        bitbuffercount += width_val;
+
+//        Serial.print("(");
+//        printInt(bitbuffer);
+//        Serial.print(")");
+        while(bitbuffercount >= 8) {
+            databuffer[pos++] = bitbuffer >> (bitbuffercount-8);
+            bitbuffercount -= 8;
+        }
+        bitbuffer &= ((1 << bitbuffercount)-1);  // Not really necessary
+    }
+    // Push remainder
+    if(bitbuffercount) {
+        bitbuffer <<= (8-bitbuffercount);
+        databuffer[pos++] = bitbuffer;
+    }
+
+//    Serial.print("=> ");
+//    for(byte j=databufferpos; j<pos; j++) {
+//        printInt(databuffer[j]);
+//        Serial.print(",");
+//    }
+
+    databufferpos = pos;
+}
+
+// Takes all the measurements form a single plug and, if requested, buffer for transmission
+static int measurePlug(Plug &plug, byte record)
+{
+    printInt(plug.port);
+    Serial.print(": ");
+
+    Device *dev = getDevice(plug.device_id);
+    measurement_t measurements[4];
+    serialFlush();
+    if(!measure(plug, measurements)) {
+        Serial.println("(measurement failed)");
+        return 1;
+    }
+
+    // Print measurements
+    for(byte j=0; j<dev->num_measurements; j++) {
+        printInt(measurements[j]);
+        Serial.print(", ");
+    }
+    Serial.print("\r\n");
+    serialFlush();
+
+    if(record) {
+        bufferMeasurements(plug, measurements);
+        if(scheduler.idle(TASK_REPORT))
+            scheduler.timer(TASK_REPORT, 1);
+    }
+    return 0;
+}
+
+// Measures all defined plugs
 static int doMeasure(int count)
 {
     Serial.print("Doing measurements:\r\n");
     for(byte n=0; n<count; n++) {
         for(byte i=0; i<numPlugs; i++) {
-
-            printInt(plugs[i].port);
-            Serial.print(": ");
-
-            Device *dev = getDevice(plugs[i].device_id);
-            measurement_t measurements[4];
-            serialFlush();
-            if(!measure(plugs[i], measurements)) {
-                Serial.println("(measurement failed)");
-                continue;
-            }
-            // Now add this information to the databuffer
-            byte pos = databufferpos;
-            databuffer[pos++] = plugs[i].id | ((dev->num_measurements-1) << 5);  // start id + number of values
-            int32_t bitbuffer = 0;
-            byte bitbuffercount = 0;
-            for(byte j=0; j<dev->num_measurements; j++) {
-                printInt(measurements[j]);
-                Serial.print(", ");
-
-                int8_t width = plugs[i].measurements[j].width;
-                // Clamp based on width
-                int32_t low, high, mask;
-                byte width_val;
-                if(width > 0) {
-                    low = 0;
-                    high = (1 << width)-1;
-                    mask = high;
-                    width_val = width;
-                } else {
-                    high = (1 << (-width-1))-1;
-                    low = ~high;
-                    mask = (1<<(-width))-1;
-                    width_val = -width;
-                }
-                int32_t m = measurements[j];
-                if(m < low) m = low;
-                if(m > high) m = high;
-
-                // Chop
-                m &= mask;
-
-                bitbuffer <<= width_val;
-                bitbuffer |= m;
-                bitbuffercount += width_val;
-
-//                Serial.print("(");
-//                printInt(bitbuffer);
-//                Serial.print(")");
-                while(bitbuffercount >= 8) {
-                    databuffer[pos++] = bitbuffer >> (bitbuffercount-8);
-                    bitbuffercount -= 8;
-                }
-            }
-            // Push remainder
-            if(bitbuffercount) {
-                bitbuffer <<= (8-bitbuffercount);
-                databuffer[pos++] = bitbuffer;
-            }
-
-//            Serial.print("=> ");
-//            for(byte j=databufferpos; j<pos; j++) {
-//                printInt(databuffer[j]);
-//                Serial.print(",");
-//            }
-            Serial.print("\r\n");
-            serialFlush();
-
-            databufferpos = pos;
+            measurePlug(plugs[i], n == 0);
         }
-
-        Sleepy::loseSomeTime(1000);
+        if( (n+1) < count )
+            Sleepy::loseSomeTime(1000);
     }
 }
 
