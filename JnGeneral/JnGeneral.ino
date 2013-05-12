@@ -352,7 +352,8 @@ static void showDevices()
 {
     Serial.print(F("Defined devices:\r\n"));
     for(byte i=0; i<numDevices; i++) {
-        printInt(i);
+        Serial.print("  ");
+        printInt(devices[i].device_id);
         Serial.print(" ");
         Serial.print(devices[i].name);
         Serial.print(", measures: ");
@@ -372,6 +373,7 @@ static void showConfig()
 {
     Serial.print(F("Current configuration:\r\n"));
     for(byte i=0; i<numPlugs; i++) {
+        Serial.print("  ");
         Serial.print("port ");
         printInt(plugs[i].port);
         Serial.print(" ");
@@ -399,6 +401,7 @@ static void showConfig()
 
         Serial.print("\r\n");
     }
+    Serial.print("  RF12: ");
     Serial.println(rf12config.msg);
 }
 
