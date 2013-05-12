@@ -3,7 +3,7 @@
 // 2013-05-11 <kleptog@svana.org> Martijn van Oosterhout
 // http://opensource.org/licenses/mit-license.php
 
-enum { DEVICE_LDR, DEVICE_SHT11, DEVICE_VOLT, DEVICE_COMPASS, DEVICE_PRESSURE };
+enum { DEVICE_LDR, DEVICE_SHT11, DEVICE_ADC, DEVICE_COMPASS, DEVICE_PRESSURE };
 
 #include <PortsSHT11.h>
 

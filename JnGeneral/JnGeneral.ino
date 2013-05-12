@@ -77,7 +77,7 @@ static Unit *getUnit(byte unit_id)
 static Device devices[] = {
     { DEVICE_LDR, 1, 0, { { UNIT_SCALAR, SCALE(1,0), 7 }  }, "LDR sensor", PLUG_LDR_INFO },
     { DEVICE_SHT11, 2, 0, { { UNIT_HUMIDITY, SCALE(1, 0), 7 }, { UNIT_TEMP, SCALE(1, -1), -12 } }, "SHT11 sensor", PLUG_SHT11_INFO },
-    { DEVICE_VOLT, 1, 0, { { UNIT_VOLT, SCALE(1,-2), 9 } }, "Voltage divider", PLUG_ADC_INFO },
+    { DEVICE_ADC, 1, 0, { { UNIT_VOLT, SCALE(1,-2), 9 } }, "ADC", PLUG_ADC_INFO },
     { DEVICE_COMPASS, 3, 1, { { UNIT_TESLA, SCALE(1,-7), -12 }, { UNIT_TESLA, SCALE(1,-7), -12 }, { UNIT_TESLA, SCALE(1,-7), -12 } }, "Compass board", PLUG_COMPASS_INFO },
     { DEVICE_PRESSURE, 2, 1, { { UNIT_TEMP, SCALE(1, -1), -12 }, { UNIT_PASCAL, SCALE(1,2), 12 } }, "Pressure board", PLUG_PRESSURE_INFO },
 };
