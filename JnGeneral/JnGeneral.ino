@@ -27,7 +27,7 @@
 
 // The scheduler makes it easy to perform various tasks at various times:
 
-enum { TASK_ANNOUNCE=0, TASK_MEASURE, TASK_REPORT, TASK_END };
+enum { TASK_ANNOUNCE=0, TASK_REPORT, TASK_MEASURE0, TASK_END=TASK_MEASURE0+MAX_PLUGS };
 static word schedbuf[TASK_END];
 Scheduler scheduler (schedbuf, TASK_END);
 
@@ -39,6 +39,17 @@ Scheduler scheduler (schedbuf, TASK_END);
 // Lame floating point format, only powers of ten = mant*10^exp
 // 4 bits mantissa (0..15), 4 bits exponent (-8..7)
 #define SCALE(mant,exp) (((exp&0xF) << 4) | (mant&0xF))
+
+static int scale_as_int(byte scale)
+{
+    int n = scale & 0xF;
+    int e = scale >> 4;
+    while(e > 0) {
+        n *= 10;
+        e--;
+    }
+    return n;
+}
 
 enum { UNIT_HUMIDITY, UNIT_TEMP, UNIT_VOLT, UNIT_OHM, UNIT_SCALAR, UNIT_TESLA, UNIT_PASCAL };
 
@@ -607,8 +618,6 @@ static int measurePlug(Plug &plug, byte record)
 
     if(record) {
         bufferMeasurements(plug, measurements);
-        if(scheduler.idle(TASK_REPORT))
-            scheduler.timer(TASK_REPORT, 1);
     }
     return 0;
 }
@@ -619,11 +628,14 @@ static int doMeasure(int count)
     Serial.print("Doing measurements:\r\n");
     for(byte n=0; n<count; n++) {
         for(byte i=0; i<numPlugs; i++) {
-            measurePlug(plugs[i], n == 0);
+            // If doing one measurement, send the results
+            measurePlug(plugs[i], count == 1);
         }
         if( (n+1) < count )
             Sleepy::loseSomeTime(1000);
     }
+    if(count == 1 && scheduler.idle(TASK_REPORT))
+        scheduler.timer(TASK_REPORT, 1);
 }
 
 static void prompt()
@@ -640,6 +652,8 @@ void setup () {
 
     for(byte i=0; i<numPlugs; i++) {
         init_measure(plugs[i]);
+        // Measure only after a minute, so the user can interrupt
+        scheduler.timer(TASK_MEASURE0+i, 600);
     }
     showHelp();
     showConfig();
@@ -648,6 +662,8 @@ void setup () {
 
     rf12_config(0);         // Setup RF
     rf12_sleep(RF12_SLEEP); // and power down
+
+    databuffer[databufferpos++] = 'D';    // init output buffer
 
     scheduler.timer(TASK_ANNOUNCE, 0);    // start the announcements
 }
@@ -672,31 +688,35 @@ void loop () {
     } else {
         event = scheduler.pollWaiting();
     }
-    switch (event) {
-        case TASK_ANNOUNCE:
-            // Repeat every minute for the first five minutes, then once per hour
-            scheduler.timer(TASK_ANNOUNCE, millis() < 300000 ? 600 : 36000);
+    if(event == TASK_ANNOUNCE) {
+        // Repeat every minute for the first five minutes, then once per hour
+        scheduler.timer(TASK_ANNOUNCE, millis() < 300000 ? 600 : 36000);
 
-            sendAnnouncement();
-            break;
+        sendAnnouncement();
+    } else if(event == TASK_REPORT) {
+        // Transmit any buffered measurements
+        Serial.print("\r\n=> ");
+        for(byte j=0; j<databufferpos; j++) {
+            printInt(databuffer[j]);
+            Serial.print(",");
+        }
+        Serial.print("\r\n");
+        serialFlush();
 
-#if 0
-        case MEASURE:
-            // reschedule these measurements periodically
-            scheduler.timer(MEASURE, MEASURE_PERIOD);
+        rf12_sleep(RF12_WAKEUP);
+        rf12_sendNow(0, databuffer, databufferpos);
+        rf12_sendWait(RADIO_SYNC_MODE);
+        rf12_sleep(RF12_SLEEP);
 
-            doMeasure();
+        databufferpos = 1;  // Don't overwrite header
+    } else if(event >= TASK_MEASURE0 && event <= TASK_MEASURE0+MAX_PLUGS) {
+        // Take the measurement for the given plug and then schedule a report
+        Plug &plug = plugs[event-TASK_MEASURE0];
 
-            // every so often, a report needs to be sent out
-            if (++reportCount >= REPORT_EVERY) {
-                reportCount = 0;
-                scheduler.timer(REPORT, 0);
-            }
-            break;
+        scheduler.timer(event, scale_as_int(plug.period));
 
-        case REPORT:
-            doReport();
-            break;
-#endif
+        measurePlug(plug, 1);
+        if(scheduler.idle(TASK_REPORT))
+            scheduler.timer(TASK_REPORT, 1);
     }
 }
