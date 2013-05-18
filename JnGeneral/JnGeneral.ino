@@ -31,6 +31,7 @@ enum { TASK_ANNOUNCE=0, TASK_REPORT, TASK_MEASURE0, TASK_END=TASK_MEASURE0+MAX_P
 static word schedbuf[TASK_END];
 Scheduler scheduler (schedbuf, TASK_END);
 
+#include "myprintf.h"
 #include "JnGRF12.h"
 #include "JnPlugs.h"
 
@@ -39,6 +40,9 @@ Scheduler scheduler (schedbuf, TASK_END);
 // Lame floating point format, only powers of ten = mant*10^exp
 // 4 bits mantissa (0..15), 4 bits exponent (-8..7)
 #define SCALE(mant,exp) (((exp&0xF) << 4) | (mant&0xF))
+
+#define SCALE_FMT "%de%d"
+#define SCALE_ARGS(s) ((s) & 0xF), (((s)>>4) - (((s)&0x80)?16:0))
 
 static int scale_as_int(byte scale)
 {
@@ -117,7 +121,7 @@ static void serialFlush () {
 }
 
 static void debug(char *msg) {
-    Serial.println(msg);
+    myprintf("%s\n", msg);
     serialFlush();
 }
 
@@ -160,7 +164,7 @@ void processCommand()
             if (parseInt(&values[0])) {
                 rf12config.nodeId = (bandToFreq(values[0]) << 6) + (rf12config.nodeId & 0x3F);
                 saveRF12Config();
-                Serial.println(rf12config.msg);
+                myprintf("%s\n", rf12config.msg);
             }
             break;
         case 'n': // set node ID
@@ -171,14 +175,14 @@ void processCommand()
             if (values[0]) {
                 rf12config.nodeId = (rf12config.nodeId & 0xE0) + (values[0] & 0x1F);
                 saveRF12Config();
-                Serial.println(rf12config.msg);
+                myprintf("%s\n", rf12config.msg);
             }
             break;
         case 'g': // set group
             if (parseInt(&values[0])) {
                 rf12config.group = values[0];
                 saveRF12Config();
-                Serial.println(rf12config.msg);
+                myprintf("%s\n", rf12config.msg);
             }
             break;
 
@@ -201,25 +205,25 @@ void processCommand()
             if (parseInt(&values[0]) && parseInt(&values[1])) {
                 byte port = values[0];
                 if(port < 1 || port > 4) {
-                    Serial.println("Bad port number (1..4)");
+                    myputs("Bad port number (1..4)\n");
                     break;
                 }
                 Device *dev = getDevice(values[1]);
                 if(!dev) {
-                    Serial.println("Invalid device number");
+                    myputs("Invalid device number\n");
                     break;
                 }
 
                 byte i=0;
                 for(i=0; i<numPlugs; i++) {
                     if( plugs[i].port == port ) {
-                        Serial.println("Port already used");
+                        myputs("Port already used\n");
                         break;
                     }
                 }
                 if(i==numPlugs) {
                     if(numPlugs == MAX_PLUGS) {
-                        Serial.println("Too many plugs defined");
+                        myputs("Too many plugs defined\n");
                         break;
                     }
                     memset(&plugs[numPlugs], 0, sizeof(Plug));
@@ -231,7 +235,7 @@ void processCommand()
                         plugs[numPlugs].measurements[k].width = dev->measurements[k].width;
                     }
                     numPlugs++;
-                    Serial.println("Device added.");
+                    myputs("Device added.\n");
                     init_measure(plugs[numPlugs-1]);
                 }
                 saveConfig();
@@ -248,7 +252,7 @@ void processCommand()
                         end_measure(plugs[i]);
                         memmove(&plugs[i], &plugs[i+1], sizeof(Plug)*(numPlugs-1-i));
                         numPlugs--;
-                        Serial.println("Device removed.");
+                        myputs("Device removed.\n");
                         break;
                     }
                 }
@@ -266,7 +270,7 @@ void processCommand()
                         memmove(&plugs[i], &plugs[i+1], sizeof(Plug)*(numPlugs-1-i));
                         numPlugs--;
                         i--;
-                        Serial.println("Device removed.");
+                        myputs("Device removed.\n");
                     }
                 }
                 saveConfig();
@@ -275,7 +279,7 @@ void processCommand()
             break;
 
         default:
-            Serial.println("Unknown command.");
+            myputs("Unknown command.\n");
             break;
     }
 }
@@ -285,7 +289,7 @@ void handleInput(char c)
     if(c == '\b' || c == '\x7f') {
         if(cmdbufferpos > 0) {
             cmdbuffer[cmdbufferpos--] = 0;
-            Serial.print("\b \b");
+            myputs("\b \b");
         }
         return;
     }
@@ -293,41 +297,20 @@ void handleInput(char c)
         if(cmdbufferpos < CMDBUFFER_SIZE-1) {
             cmdbuffer[cmdbufferpos++] = c;
             cmdbuffer[cmdbufferpos] = 0;
-            Serial.print(cmdbuffer+cmdbufferpos-1);
+            myputs(cmdbuffer+cmdbufferpos-1);
         }
         return;
     }
     if(c == '\r' || c == '\n') {
         cmdbuffer[cmdbufferpos] = 0;
-        Serial.println("");
+        myputs("\n");
         processCommand();
         cmdbufferpos = 0;
         cmdbuffer[0] = 0;
         prompt();
         return;
     }
-    printInt(c);
-}
-
-static void printInt(int32_t val) {
-    char buf[2];
-    if (val < 0) {
-        Serial.print("-");
-        val = -val;
-    }
-    if (val >= 10)
-        printInt(val / 10);
-    buf[0] = '0' + val % 10;
-    buf[1] = 0;
-    Serial.print(buf);
-}
-
-static void printScale(byte scale) {
-    printInt(scale & 0xF);
-    Serial.print("e");
-    int exp = scale >> 4;
-    if(exp >= 8) exp -= 16;
-    printInt(exp);
+    myputc(c);
 }
 
 
@@ -350,59 +333,44 @@ static void showHelp()
 
 static void showDevices()
 {
-    Serial.print(F("Defined devices:\r\n"));
+    myputs("Defined devices:\n");
     for(byte i=0; i<numDevices; i++) {
-        Serial.print("  ");
-        printInt(devices[i].device_id);
-        Serial.print(" ");
-        Serial.print(devices[i].name);
-        Serial.print(", measures: ");
+        myprintf("  %d %s, measures: ", devices[i].device_id, devices[i].name);
         for(byte j=0; j < devices[i].num_measurements; j++) {
             Unit *unit = getUnit(devices[i].measurements[j].unit);
             if(!unit)
-                Serial.print("(Unknown)");
+                myputs("(Unknown)");
             else
-                Serial.print(unit->descr);
-            Serial.print(", ");
+                myputs(unit->descr);
+            myputs(", ");
         }
-        Serial.print("\r\n");
+        myputs("\n");
     }
 }
 
 static void showConfig()
 {
-    Serial.print(F("Current configuration:\r\n"));
+    myputs("Current configuration:\n");
     for(byte i=0; i<numPlugs; i++) {
-        Serial.print("  ");
-        Serial.print("port ");
-        printInt(plugs[i].port);
-        Serial.print(" ");
+        myprintf("  port %d ", plugs[i].port);
         Device *dev = getDevice(plugs[i].device_id);
         if(!dev) {
-            Serial.println("(Unknown)");
+            myputs("(Unknown)\n");
             continue;
         }
-        Serial.print(dev->name);
-        Serial.print(" measuring: ");
+        myprintf("%s measuring: ", dev->name);
         for(byte j=0; j<dev->num_measurements; j++) {
             Unit *unit = getUnit(dev->measurements[j].unit);
             if(!unit)
-                Serial.print("(Unknown)");
+                myputs("(Unknown)");
             else {
-                Serial.print(unit->descr);
-                Serial.print(" (");
-                printScale(plugs[i].measurements[j].scale);
-                Serial.print(" ");
-                Serial.print(unit->unitname);
-                Serial.print(") ");
+                myprintf("%s (" SCALE_FMT " %s)", unit->descr, SCALE_ARGS(plugs[i].measurements[j].scale), unit->unitname);
             }
-            Serial.print(", ");
+            myputs(", ");
         }
-
-        Serial.print("\r\n");
+        myputs("\n");
     }
-    Serial.print("  RF12: ");
-    Serial.println(rf12config.msg);
+    myprintf("  RF12: %s\n", rf12config.msg);
 }
 
 static int saveConfig()
@@ -468,7 +436,7 @@ static int loadConfig()
     while(ptr < buffer+len-2) {
         byte nodelen = *ptr;
         if(nodelen < 4 || nodelen > 8) {
-            Serial.println("nodelen fail");
+            myputs("nodelen fail\n");
             return 0;
         }
 
@@ -528,13 +496,6 @@ static void sendAnnouncement()
     rf12_sendNow(0, buffer, ptr-buffer);
     rf12_sendWait(RADIO_SYNC_MODE);
     rf12_sleep(RF12_SLEEP);
-
-//    for (byte i = 0; i < ptr-buffer; ++i) {
-//        byte b = buffer[i];
-//        printInt(b);
-//        Serial.print(",");
-//    }
-//    Serial.println("");
 }
 
 // Takes the given measurements for a plug and buffer them for transmission
@@ -573,9 +534,6 @@ static void bufferMeasurements(Plug &plug, const measurement_t (&measurements)[4
         bitbuffer |= m;
         bitbuffercount += width_val;
 
-//        Serial.print("(");
-//        printInt(bitbuffer);
-//        Serial.print(")");
         while(bitbuffercount >= 8) {
             databuffer[pos++] = bitbuffer >> (bitbuffercount-8);
             bitbuffercount -= 8;
@@ -588,35 +546,25 @@ static void bufferMeasurements(Plug &plug, const measurement_t (&measurements)[4
         databuffer[pos++] = bitbuffer;
     }
 
-//    Serial.print("=> ");
-//    for(byte j=databufferpos; j<pos; j++) {
-//        printInt(databuffer[j]);
-//        Serial.print(",");
-//    }
-
     databufferpos = pos;
 }
 
 // Takes all the measurements form a single plug and, if requested, buffer for transmission
 static int measurePlug(Plug &plug, byte record)
 {
-    printInt(plug.port);
-    Serial.print(": ");
-
     Device *dev = getDevice(plug.device_id);
     measurement_t measurements[4];
-    serialFlush();
     if(!measure(plug, measurements)) {
-        Serial.println("(measurement failed)");
+        myputs("(measurement failed)\n");
         return 1;
     }
 
     // Print measurements
+    myprintf("%d: ", plug.port);
     for(byte j=0; j<dev->num_measurements; j++) {
-        printInt(measurements[j]);
-        Serial.print(", ");
+        myprintf("%d, ", measurements[j]);
     }
-    Serial.print("\r\n");
+    myputs("\n");
     serialFlush();
 
     if(record) {
@@ -628,7 +576,8 @@ static int measurePlug(Plug &plug, byte record)
 // Measures all defined plugs
 static int doMeasure(int count)
 {
-    Serial.print("Doing measurements:\r\n");
+    myputs("Doing measurements:\n");
+    serialFlush();
     for(byte n=0; n<count; n++) {
         for(byte i=0; i<numPlugs; i++) {
             // If doing one measurement, send the results
@@ -643,13 +592,13 @@ static int doMeasure(int count)
 
 static void prompt()
 {
-    Serial.print("jn-g> ");
+    myputs("jn-g> ");
     serialFlush();
 }
 
 void setup () {
     Serial.begin(57600);
-    Serial.println("\r\n[JeeNode General]");
+    myputs("\n[JeeNode General]\n");
     loadRF12Config();
     loadConfig();
 
@@ -698,12 +647,11 @@ void loop () {
         sendAnnouncement();
     } else if(event == TASK_REPORT) {
         // Transmit any buffered measurements
-        Serial.print("\r\n=> ");
+        myputs("\n=> ");
         for(byte j=0; j<databufferpos; j++) {
-            printInt(databuffer[j]);
-            Serial.print(",");
+            myprintf("%X ", databuffer[j]);
         }
-        Serial.print("\r\n");
+        myputs("\n");
         serialFlush();
 
         rf12_sleep(RF12_WAKEUP);

@@ -236,7 +236,6 @@ static byte measure(Plug &plug, measurement_t measurements[4])
     int res = dev->info.measure(plug.data, measurements);
     if(res) {
         debug("measure failed?");
-        printInt(res);
     }
     return 1;
 }
