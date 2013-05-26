@@ -282,6 +282,45 @@ void processCommand()
             }
             break;
 
+        case 'r': // Set measurement period
+            if (parseInt(&values[0]) && parseInt(&values[1])) {
+                // Check and convert period
+                byte exp = 0, mant;
+                if(values[1] > 30000 || values[1] < 0) {
+                    myputs("Periods must be 0<=X<=30000\n");
+                    break;
+                }
+                while(values[1] && (values[1] % 10) == 0) {
+                    exp++;
+                    values[1] /= 10;
+                }
+                if(values[1] > 15 || values[1] < 0) {
+                    myputs("Periods must be A*10^B, 0<=A<=15, 0<=B<=7\n");
+                    break;
+                }
+                mant = values[1];
+                if(mant == 0)
+                    exp = 0;
+
+                // Check device number
+                byte device = values[0];
+                if(device < 0 || device >= numPlugs) {
+                    myputs("Device number out of range\n");
+                    break;
+                }
+
+                plugs[device].period = SCALE(mant, exp);
+                saveConfig();
+
+                // Start/stop timer as appropriate
+                if(mant && scheduler.idle(TASK_MEASURE0+device))
+                    scheduler.timer(TASK_MEASURE0+device, 10); // Start in 1 second
+                if(!mant && !scheduler.idle(TASK_MEASURE0+device))
+                    scheduler.cancel(TASK_MEASURE0+device);
+                scheduler.timer(TASK_ANNOUNCE, 0);
+            }
+            break;
+
         default:
             myputs("Unknown command.\n");
             break;
@@ -325,6 +364,7 @@ static void showHelp()
                  "  a <port> <device>   Add device to port\r\n"
                  "  d <port> <device>   Remove device from port\r\n"
                  "  c <port>            Clear all devices from port\r\n"
+                 "  r <device> <delay>  Set measurement period for device (in 0.1s)\r\n"
                  "  l                   List defined devices\r\n"
                  "  p                   Print current configuration\r\n"
                  "  m                   Do test measurements\r\n"
@@ -356,13 +396,14 @@ static void showConfig()
 {
     myputs("Current configuration:\n");
     for(byte i=0; i<numPlugs; i++) {
-        myprintf("  port %d ", plugs[i].port);
+        myprintf("  dev %d: port %d ", i, plugs[i].port);
         Device *dev = getDevice(plugs[i].device_id);
         if(!dev) {
             myputs("(Unknown)\n");
             continue;
         }
-        myprintf("%s measuring: ", dev->name);
+        int period = scale_as_int(plugs[i].period);
+        myprintf("%s measuring (every %d.%ds): ", dev->name, period/10, period%10);
         for(byte j=0; j<dev->num_measurements; j++) {
             Unit *unit = getUnit(dev->measurements[j].unit);
             if(!unit)
@@ -675,7 +716,9 @@ void loop () {
         // Take the measurement for the given plug and then schedule a report
         Plug &plug = plugs[event-TASK_MEASURE0];
 
-        scheduler.timer(event, scale_as_int(plug.period));
+        int period = scale_as_int(plug.period);
+        if(period)
+            scheduler.timer(event, period);
 
         measurePlug(plug, 1);
         if(scheduler.idle(TASK_REPORT))
