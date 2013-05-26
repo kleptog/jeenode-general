@@ -37,6 +37,10 @@ Scheduler scheduler (schedbuf, TASK_END);
 
 #define JG_EEPROM_ADDR ((uint8_t*) 0x80)
 
+// Flags indicating actions on the serial port
+static byte useSerial = 1;   // If we want the serial port active
+static byte readSerial = 0;  // If we've ever received anything
+
 // Lame floating point format, only powers of ten = mant*10^exp
 // 4 bits mantissa (0..15), 4 bits exponent (-8..7)
 #define SCALE(mant,exp) (((exp&0xF) << 4) | (mant&0xF))
@@ -559,13 +563,15 @@ static int measurePlug(Plug &plug, byte record)
         return 1;
     }
 
-    // Print measurements
-    myprintf("%d: ", plug.port);
-    for(byte j=0; j<dev->num_measurements; j++) {
-        myprintf("%d, ", measurements[j]);
+    if(useSerial) {
+        // Print measurements
+        myprintf("%d: ", plug.port);
+        for(byte j=0; j<dev->num_measurements; j++) {
+            myprintf("%d, ", measurements[j]);
+        }
+        myputs("\n");
+        serialFlush();
     }
-    myputs("\n");
-    serialFlush();
 
     if(record) {
         bufferMeasurements(plug, measurements);
@@ -620,15 +626,16 @@ void setup () {
     scheduler.timer(TASK_ANNOUNCE, 0);    // start the announcements
 }
 
-static byte readSerial = 0;
-
 void loop () {
     // pollWaiting goes to low-power mode but also disables the serial port.
     // So we listen to the serial port for the first minute after boot.  If
     // we don't receive something in that time assume noone is there and
     // stop monitoring.
     byte event;
-    if( readSerial || millis() < 60000 ) {
+
+    if( !readSerial && millis() > 60000 )
+        useSerial = 0;
+    if( useSerial ) {
         while (Serial.available())
         {
             readSerial = 1;
@@ -646,13 +653,17 @@ void loop () {
 
         sendAnnouncement();
     } else if(event == TASK_REPORT) {
-        // Transmit any buffered measurements
-        myputs("\n=> ");
-        for(byte j=0; j<databufferpos; j++) {
-            myprintf("%X ", databuffer[j]);
+        if(databufferpos == 1)
+            return;
+        if(useSerial) {
+            // Transmit any buffered measurements
+            myputs("\n=> ");
+            for(byte j=0; j<databufferpos; j++) {
+                myprintf("%X ", databuffer[j]);
+            }
+            myputs("\n");
+            serialFlush();
         }
-        myputs("\n");
-        serialFlush();
 
         rf12_sleep(RF12_WAKEUP);
         rf12_sendNow(0, databuffer, databufferpos);
